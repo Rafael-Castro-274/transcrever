@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transcrever — áudio para texto, no seu computador</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
+<link href="vendor/fonts.css" rel="stylesheet">
+<style>
+  :root {
+    --bg: #161310;
+    --bg-raised: #1f1b16;
+    --bg-sunken: #100e0b;
+    --line: #35302a;
+    --line-soft: #2a2622;
+    --ink: #ece5d8;
+    --ink-dim: #9a907f;
+    --ink-faint: #6b6355;
+    --amber: #e8a33d;
+    --amber-bright: #f6c06a;
+    --amber-deep: #b97a1e;
+    --green: #8fbf6f;
+    --red: #d96c5f;
+    --display: "Bricolage Grotesque", sans-serif;
+    --mono: "IBM Plex Mono", monospace;
+    --serif: "Lora", serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--display);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  /* grain + glow atmosphere */
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(232,163,61,.10), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 85% 110%, rgba(232,163,61,.05), transparent 60%);
+  }
+  body::after {
+    content: "";
+    position: fixed; inset: -50%; z-index: 0; pointer-events: none; opacity: .5;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.04 0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .wrap {
+    position: relative; z-index: 1;
+    max-width: 880px; margin: 0 auto;
+    padding: 48px 24px 96px;
+  }
+
+  /* ---------- header ---------- */
+  header { margin-bottom: 44px; animation: rise .7s cubic-bezier(.2,.7,.2,1) both; }
+  .brand {
+    font-size: clamp(44px, 8vw, 72px);
+    font-weight: 750;
+    font-variation-settings: "opsz" 96;
+    letter-spacing: -.03em;
+    line-height: 1;
+  }
+  .brand .dot { color: var(--amber); }
+  .tagline {
+    font-family: var(--mono); font-size: 13px; color: var(--ink-dim);
+    margin-top: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .tagline .sep { color: var(--amber-deep); }
+  .badge {
+    font-family: var(--mono); font-size: 11px;
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 3px 10px; color: var(--ink-dim);
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .badge .led { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-faint); }
+  .badge.on .led { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+  /* ---------- settings ---------- */
+  .settings {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+    margin-bottom: 20px;
+    animation: rise .7s .08s cubic-bezier(.2,.7,.2,1) both;
+  }
+  @media (max-width: 620px) { .settings { grid-template-columns: 1fr; } }
+  .field label {
+    display: block; font-family: var(--mono); font-size: 11px;
+    text-transform: uppercase; letter-spacing: .12em;
+    color: var(--ink-faint); margin-bottom: 7px;
+  }
+  select {
+    width: 100%; appearance: none;
+    background: var(--bg-raised) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239a907f' fill='none' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 14px center;
+    border: 1px solid var(--line); border-radius: 10px;
+    color: var(--ink); font-family: var(--mono); font-size: 13px;
+    padding: 12px 36px 12px 14px; cursor: pointer;
+    transition: border-color .2s;
+  }
+  select:hover, select:focus { border-color: var(--amber-deep); outline: none; }
+  .hint { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-top: 6px; }
+
+  /* ---------- dropzone ---------- */
+  .stage { animation: rise .7s .16s cubic-bezier(.2,.7,.2,1) both; }
+  .dropzone {
+    position: relative;
+    border: 1.5px dashed var(--line);
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(255,255,255,.012), transparent);
+    padding: 56px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .25s, background .25s, transform .25s;
+  }
+  .dropzone:hover { border-color: var(--amber-deep); }
+  .dropzone.dragover {
+    border-color: var(--amber); background: rgba(232,163,61,.06);
+    transform: scale(1.005);
+  }
+  .dz-icon { font-size: 34px; margin-bottom: 14px; filter: grayscale(.2); }
+  .dz-title { font-size: 21px; font-weight: 600; letter-spacing: -.01em; }
+  .dz-title em { font-style: normal; color: var(--amber); }
+  .dz-sub { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); margin-top: 8px; }
+  .dz-or {
+    display: flex; align-items: center; gap: 14px; margin: 22px auto 0; max-width: 320px;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+  }
+  .dz-or::before, .dz-or::after { content: ""; flex: 1; height: 1px; background: var(--line-soft); }
+  .btn {
+    font-family: var(--mono); font-size: 13px; font-weight: 500;
+    border: 1px solid var(--line); border-radius: 10px;
+    background: var(--bg-raised); color: var(--ink);
+    padding: 11px 18px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 9px;
+    transition: border-color .2s, background .2s, color .2s, transform .1s;
+  }
+  .btn:hover { border-color: var(--amber-deep); color: var(--amber-bright); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary {
+    background: var(--amber); border-color: var(--amber); color: #1a1408;
+  }
+  .btn.primary:hover { background: var(--amber-bright); border-color: var(--amber-bright); color: #1a1408; }
+  .btn.danger:hover { border-color: var(--red); color: var(--red); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .mic-btn { margin-top: 18px; }
+  .mic-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
+
+  /* ---------- recording ---------- */
+  .recorder {
+    border: 1px solid var(--line); border-radius: 18px;
+    background: var(--bg-raised); padding: 28px; text-align: center;
+  }
+  .rec-head {
+    font-family: var(--mono); font-size: 12px; color: var(--red);
+    display: flex; justify-content: center; align-items: center; gap: 9px;
+    text-transform: uppercase; letter-spacing: .14em;
+  }
+  .rec-head .pulse {
+    width: 9px; height: 9px; border-radius: 50%; background: var(--red);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(217,108,95,.5);} 50% { opacity: .6; box-shadow: 0 0 0 7px rgba(217,108,95,0);} }
+  .rec-timer {
+    font-family: var(--mono); font-size: 42px; font-weight: 500;
+    margin: 14px 0 6px; letter-spacing: .04em; font-variant-numeric: tabular-nums;
+  }
+  canvas.wave { width: 100%; height: 72px; display: block; margin: 10px 0 20px; }
+  .rec-actions { display: flex; gap: 12px; justify-content: center; }
+
+  /* ---------- status / progress ---------- */
+  .panel {
+    border: 1px solid var(--line); border-radius: 18px;
+    background: var(--bg-raised); padding: 26px 28px;
+  }
+  .panel h3 {
+    font-family: var(--mono); font-size: 11px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: .14em; color: var(--ink-faint);
+    margin-bottom: 16px;
+  }
+  .load-status { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+  .load-note { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); margin-bottom: 18px; }
+  .file-row { margin-bottom: 11px; }
+  .file-row .fr-top {
+    display: flex; justify-content: space-between;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-dim); margin-bottom: 5px;
+  }
+  .bar {
+    height: 5px; border-radius: 99px; background: var(--bg-sunken); overflow: hidden;
+  }
+  .bar > i {
+    display: block; height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--amber-deep), var(--amber));
+    border-radius: 99px; transition: width .25s ease;
+  }
+  .bar.big { height: 8px; }
+  .meta-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-family: var(--mono); font-size: 12px; color: var(--ink-dim); margin-bottom: 8px;
+  }
+  .meta-row b { color: var(--amber-bright); font-weight: 500; }
+
+  /* live transcript while processing */
+  .live {
+    margin-top: 18px; padding: 18px 20px;
+    background: var(--bg-sunken); border-radius: 12px;
+    font-family: var(--serif); font-size: 16.5px; line-height: 1.75; color: var(--ink);
+    max-height: 300px; overflow-y: auto; white-space: pre-wrap;
+  }
+  .live:empty::before { content: "Aguardando as primeiras palavras…"; color: var(--ink-faint); font-style: italic; }
+  .caret {
+    display: inline-block; width: 8px; height: 1.1em; vertical-align: text-bottom;
+    background: var(--amber); margin-left: 2px; animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ---------- result ---------- */
+  .result-head {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 12px; margin-bottom: 14px;
+  }
+  .result-title { font-size: 24px; font-weight: 700; letter-spacing: -.02em; }
+  .result-title .ok { color: var(--green); margin-right: 8px; }
+  .stats { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); }
+  .stats b { color: var(--ink); font-weight: 500; }
+  .view-toggle {
+    display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  }
+  .view-toggle button {
+    font-family: var(--mono); font-size: 12px; padding: 8px 14px;
+    background: transparent; border: none; color: var(--ink-dim); cursor: pointer;
+    transition: background .2s, color .2s;
+  }
+  .view-toggle button.active { background: var(--amber); color: #1a1408; }
+  textarea.transcript {
+    width: 100%; min-height: 320px; resize: vertical;
+    background: var(--bg-sunken); border: 1px solid var(--line-soft); border-radius: 12px;
+    color: var(--ink); font-family: var(--serif); font-size: 17px; line-height: 1.8;
+    padding: 24px 26px; outline: none;
+  }
+  textarea.transcript:focus { border-color: var(--amber-deep); }
+  .chunks { max-height: 420px; overflow-y: auto; background: var(--bg-sunken); border: 1px solid var(--line-soft); border-radius: 12px; padding: 10px 0; }
+  .chunk { display: flex; gap: 18px; padding: 9px 24px; }
+  .chunk:hover { background: rgba(232,163,61,.04); }
+  .chunk .t {
+    font-family: var(--mono); font-size: 11.5px; color: var(--amber-deep);
+    white-space: nowrap; padding-top: 4px; font-variant-numeric: tabular-nums;
+  }
+  .chunk .x { font-family: var(--serif); font-size: 16px; line-height: 1.65; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+
+  footer {
+    margin-top: 60px; text-align: center;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+    animation: rise .7s .24s cubic-bezier(.2,.7,.2,1) both;
+  }
+  footer a { color: var(--ink-dim); }
+
+  .hidden { display: none !important; }
+  @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+  .fade-in { animation: rise .5s cubic-bezier(.2,.7,.2,1) both; }
+
+  /* toast */
+  #toast {
+    position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--bg-raised); border: 1px solid var(--line); border-radius: 12px;
+    font-family: var(--mono); font-size: 13px; padding: 12px 20px;
+    opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; z-index: 50;
+    max-width: 90vw;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast.err { border-color: var(--red); color: var(--red); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">Transcrever<span class="dot">.</span></div>
+    <div class="tagline">
+      <span>áudio → texto</span><span class="sep">//</span>
+      <span>100% no seu computador, nada é enviado pra internet</span>
+      <span class="badge" id="deviceBadge"><span class="led"></span><span id="deviceLabel">detectando…</span></span>
+    </div>
+  </header>
+
+  <section class="settings">
+    <div class="field">
+      <label for="modelSel">Modelo</label>
+      <select id="modelSel">
+        <option value="onnx-community/whisper-tiny">Rápido — tiny (~60 MB)</option>
+        <option value="onnx-community/whisper-base" selected>Equilibrado — base (~95 MB)</option>
+        <option value="onnx-community/whisper-small">Preciso — small (~300 MB)</option>
+        <option value="onnx-community/whisper-large-v3-turbo">Máximo — large-turbo (~1,6 GB)</option>
+      </select>
+      <div class="hint">Baixado uma única vez, depois funciona offline. Para português, "Preciso" vale a pena.</div>
+    </div>
+    <div class="field">
+      <label for="langSel">Idioma do áudio</label>
+      <select id="langSel">
+        <option value="pt" selected>Português</option>
+        <option value="auto">Detectar automaticamente</option>
+        <option value="en">Inglês</option>
+        <option value="es">Espanhol</option>
+        <option value="fr">Francês</option>
+        <option value="it">Italiano</option>
+        <option value="de">Alemão</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="stage">
+
+    <!-- 1. idle: dropzone -->
+    <div id="viewIdle">
+      <div class="dropzone" id="dropzone">
+        <div class="dz-icon">🎙️</div>
+        <div class="dz-title">Arraste um áudio aqui, ou <em>clique para escolher</em></div>
+        <div class="dz-sub">MP3 · WAV · OGG · M4A · OPUS · áudio de WhatsApp · vídeo MP4/WEBM</div>
+        <div class="dz-or">ou</div>
+        <button class="btn mic-btn" id="micBtn"><span class="mic-dot"></span>Gravar pelo microfone</button>
+      </div>
+      <input type="file" id="fileInput" accept="audio/*,video/*,.opus,.oga,.amr" hidden>
+    </div>
+
+    <!-- 2. recording -->
+    <div id="viewRec" class="hidden">
+      <div class="recorder fade-in">
+        <div class="rec-head"><span class="pulse"></span>Gravando</div>
+        <div class="rec-timer" id="recTimer">00:00</div>
+        <canvas class="wave" id="wave"></canvas>
+        <div class="rec-actions">
+          <button class="btn primary" id="recStop">■&nbsp; Parar e transcrever</button>
+          <button class="btn danger" id="recCancel">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. loading model -->
+    <div id="viewLoad" class="hidden">
+      <div class="panel fade-in">
+        <h3>Preparando o modelo</h3>
+        <div class="load-status" id="loadStatus">Baixando o modelo de reconhecimento de voz…</div>
+        <div class="load-note" id="loadNote">Só na primeira vez — depois ele fica guardado no navegador e funciona offline.</div>
+        <div id="fileRows"></div>
+      </div>
+    </div>
+
+    <!-- 4. transcribing -->
+    <div id="viewWork" class="hidden">
+      <div class="panel fade-in">
+        <h3>Transcrevendo</h3>
+        <div class="meta-row">
+          <span id="workFile">—</span>
+          <span><b id="workPct">0%</b></span>
+        </div>
+        <div class="bar big"><i id="workBar"></i></div>
+        <div class="live" id="liveText"></div>
+      </div>
+    </div>
+
+    <!-- 5. result -->
+    <div id="viewDone" class="hidden">
+      <div class="fade-in">
+        <div class="result-head">
+          <div>
+            <div class="result-title"><span class="ok">✓</span>Transcrição pronta</div>
+            <div class="stats" id="doneStats"></div>
+          </div>
+          <div class="view-toggle">
+            <button id="tabText" class="active">Texto</button>
+            <button id="tabTimes">Com tempos</button>
+          </div>
+        </div>
+        <textarea class="transcript" id="finalText" spellcheck="false"></textarea>
+        <div class="chunks hidden" id="chunkList"></div>
+        <div class="actions">
+          <button class="btn primary" id="btnCopy">⧉&nbsp; Copiar</button>
+          <button class="btn" id="btnTxt">↓&nbsp; Baixar .txt</button>
+          <button class="btn" id="btnSrt">↓&nbsp; Baixar .srt (legenda)</button>
+          <button class="btn" id="btnNew">+&nbsp; Nova transcrição</button>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <footer>
+    feito com Whisper (OpenAI) rodando localmente via transformers.js — seus áudios nunca saem desta máquina
+  </footer>
+</div>
+
+<div id="toast"></div>
+
+<script type="text/worker-js" id="workerSrc">
+import { pipeline, WhisperTextStreamer, env } from "__TRANSFORMERS_URL__";
+env.backends.onnx.wasm.wasmPaths = "__WASM_PATH__";
+
+let transcriber = null;
+let loadedKey = null;
+
+async function load(model, device) {
+  const key = model + "|" + device;
+  if (transcriber && loadedKey === key) { postMessage({ type: "ready" }); return; }
+  if (transcriber) { try { await transcriber.dispose(); } catch (e) {} transcriber = null; }
+
+  const opts = {
+    device,
+    progress_callback: (p) => {
+      if (p.status === "initiate" || p.status === "progress" || p.status === "done") {
+        postMessage({ type: "dl", status: p.status, file: p.file, loaded: p.loaded || 0, total: p.total || 0 });
+      }
+    },
+  };
+  if (device === "webgpu") {
+    opts.dtype = {
+      encoder_model: model.includes("large") ? "fp16" : "fp32",
+      decoder_model_merged: "q4",
+    };
+  } else {
+    opts.dtype = "q8";
+  }
+  transcriber = await pipeline("automatic-speech-recognition", model, opts);
+  loadedKey = key;
+  postMessage({ type: "ready" });
+}
+
+self.onmessage = async (e) => {
+  const d = e.data;
+  try {
+    if (d.type === "load") {
+      try {
+        await load(d.model, d.device);
+      } catch (err) {
+        if (d.device === "webgpu") {
+          postMessage({ type: "fallback" });
+          await load(d.model, "wasm");
+        } else throw err;
+      }
+    } else if (d.type === "transcribe") {
+      const tp = transcriber.processor.feature_extractor.config.chunk_length /
+                 transcriber.model.config.max_source_positions;
+      let chunkCount = 0;
+      const streamer = new WhisperTextStreamer(transcriber.tokenizer, {
+        time_precision: tp,
+        skip_prompt: true,
+        on_chunk_start: (t) => { chunkCount++; postMessage({ type: "chunk", time: t }); },
+        callback_function: (text) => postMessage({ type: "stream", text }),
+      });
+      const opts2 = {
+        task: "transcribe",
+        chunk_length_s: 30,
+        stride_length_s: 5,
+        return_timestamps: true,
+        streamer,
+      };
+      if (d.language && d.language !== "auto") opts2.language = d.language;
+      const out = await transcriber(d.audio, opts2);
+      postMessage({ type: "complete", text: out.text || "", chunks: out.chunks || [] });
+    }
+  } catch (err) {
+    postMessage({ type: "error", message: String(err && err.message || err) });
+  }
+};
+</script>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const views = ["viewIdle", "viewRec", "viewLoad", "viewWork", "viewDone"];
+  const show = (v) => views.forEach((x) => $(x).classList.toggle("hidden", x !== v));
+
+  let worker = null;
+  let device = "wasm";
+  let modelReady = false;     // ready for the currently selected model
+  let pendingJob = null;      // { audio: Float32Array, name, duration }
+  let liveBuf = "";
+  let audioDuration = 0;
+  let startedAt = 0;
+  let lastResult = null;
+
+  // ---------- toast ----------
+  let toastTimer;
+  function toast(msg, err = false) {
+    const t = $("toast");
+    t.textContent = msg;
+    t.className = "show" + (err ? " err" : "");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (t.className = ""), 3800);
+  }
+
+  // ---------- device detection ----------
+  (async () => {
+    try {
+      if (navigator.gpu && await navigator.gpu.requestAdapter()) device = "webgpu";
+    } catch (e) {}
+    $("deviceLabel").textContent = device === "webgpu" ? "acelerado · WebGPU" : "modo compatível · CPU";
+    $("deviceBadge").classList.add("on");
+  })();
+
+  // ---------- worker ----------
+  function ensureWorker() {
+    if (worker) return worker;
+    const src = $("workerSrc").textContent
+      .replace("__TRANSFORMERS_URL__", new URL("vendor/transformers.min.js", location.href).href)
+      .replace("__WASM_PATH__", new URL("vendor/", location.href).href);
+    worker = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })), { type: "module" });
+    worker.onmessage = (e) => handleWorker(e.data);
+    worker.onerror = (e) => { toast("Erro no processamento: " + e.message, true); show("viewIdle"); };
+    return worker;
+  }
+
+  const fileProg = new Map();
+  function handleWorker(m) {
+    if (m.type === "dl") {
+      renderDl(m);
+    } else if (m.type === "fallback") {
+      device = "wasm";
+      $("deviceLabel").textContent = "modo compatível · CPU";
+      $("loadNote").textContent = "Sua placa de vídeo não aceitou o modelo — usando o processador (mais lento, mas funciona).";
+      fileProg.clear(); $("fileRows").innerHTML = "";
+    } else if (m.type === "ready") {
+      modelReady = true;
+      if (pendingJob) startTranscription();
+    } else if (m.type === "chunk") {
+      const pct = audioDuration > 0 ? Math.min(99, Math.round((m.time / audioDuration) * 100)) : 0;
+      $("workPct").textContent = pct + "%";
+      $("workBar").style.width = pct + "%";
+    } else if (m.type === "stream") {
+      liveBuf += m.text;
+      const el = $("liveText");
+      el.textContent = liveBuf;
+      el.scrollTop = el.scrollHeight;
+    } else if (m.type === "complete") {
+      finishTranscription(m);
+    } else if (m.type === "error") {
+      toast("Erro: " + m.message, true);
+      show("viewIdle");
+      pendingJob = null;
+    }
+  }
+
+  function renderDl(m) {
+    if (!m.file) return;
+    let row = fileProg.get(m.file);
+    if (!row) {
+      const div = document.createElement("div");
+      div.className = "file-row";
+      div.innerHTML = `<div class="fr-top"><span>${m.file.split("/").pop()}</span><span class="pct">0%</span></div><div class="bar"><i></i></div>`;
+      $("fileRows").appendChild(div);
+      row = { div };
+      fileProg.set(m.file, row);
+    }
+    const pct = m.status === "done" ? 100 : (m.total ? Math.round((m.loaded / m.total) * 100) : 0);
+    row.div.querySelector(".pct").textContent = pct + "%" + (m.total ? "  ·  " + fmtBytes(m.total) : "");
+    row.div.querySelector("i").style.width = pct + "%";
+  }
+
+  function fmtBytes(b) {
+    if (b > 1e9) return (b / 1e9).toFixed(1) + " GB";
+    if (b > 1e6) return Math.round(b / 1e6) + " MB";
+    return Math.round(b / 1e3) + " KB";
+  }
+
+  // ---------- model (re)load on selection change ----------
+  $("modelSel").addEventListener("change", () => { modelReady = false; });
+
+  function requestModel() {
+    modelReady = false;
+    fileProg.clear();
+    $("fileRows").innerHTML = "";
+    $("loadStatus").textContent = "Baixando o modelo de reconhecimento de voz…";
+    ensureWorker().postMessage({ type: "load", model: $("modelSel").value, device });
+  }
+
+  // ---------- audio decoding ----------
+  async function decodeToMono16k(arrayBuffer) {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    try {
+      const buf = await ctx.decodeAudioData(arrayBuffer);
+      let data;
+      if (buf.numberOfChannels > 1) {
+        data = new Float32Array(buf.length);
+        for (let c = 0; c < buf.numberOfChannels; c++) {
+          const ch = buf.getChannelData(c);
+          for (let i = 0; i < buf.length; i++) data[i] += ch[i] / buf.numberOfChannels;
+        }
+      } else {
+        data = buf.getChannelData(0);
+      }
+      return { data, duration: buf.duration };
+    } finally {
+      ctx.close();
+    }
+  }
+
+  async function handleFile(file) {
+    if (!file) return;
+    try {
+      toast("Lendo o arquivo…");
+      const ab = await file.arrayBuffer();
+      const { data, duration } = await decodeToMono16k(ab);
+      if (duration < 0.3) { toast("Áudio muito curto.", true); return; }
+      pendingJob = { audio: data, name: file.name, duration };
+      audioDuration = duration;
+      beginJob();
+    } catch (err) {
+      toast("Não consegui ler esse arquivo de áudio. Formato não suportado?", true);
+      console.error(err);
+    }
+  }
+
+  function beginJob() {
+    liveBuf = "";
+    $("liveText").textContent = "";
+    if (modelReady) {
+      startTranscription();
+    } else {
+      show("viewLoad");
+      requestModel();
+    }
+  }
+
+  function startTranscription() {
+    const job = pendingJob;
+    if (!job) return;
+    show("viewWork");
+    $("workFile").textContent = `${job.name}  ·  ${fmtTime(job.duration)}`;
+    $("workPct").textContent = "0%";
+    $("workBar").style.width = "0%";
+    startedAt = performance.now();
+    const lang = $("langSel").value;
+    ensureWorker().postMessage({ type: "transcribe", audio: job.audio, language: lang }, [job.audio.buffer]);
+    pendingJob = null;
+  }
+
+  function finishTranscription(m) {
+    const secs = (performance.now() - startedAt) / 1000;
+    const text = (m.text || "").trim();
+    lastResult = { text, chunks: m.chunks || [], duration: audioDuration };
+    $("finalText").value = text;
+    renderChunks(lastResult.chunks);
+    const words = text ? text.split(/\s+/).length : 0;
+    $("doneStats").innerHTML =
+      `<b>${words}</b> palavras · áudio de <b>${fmtTime(audioDuration)}</b> · processado em <b>${fmtTime(secs)}</b>`;
+    show("viewDone");
+    $("workBar").style.width = "100%";
+  }
+
+  function renderChunks(chunks) {
+    const list = $("chunkList");
+    list.innerHTML = "";
+    for (const c of chunks) {
+      if (!c.text || !c.text.trim()) continue;
+      const div = document.createElement("div");
+      div.className = "chunk";
+      const t0 = c.timestamp && c.timestamp[0] != null ? c.timestamp[0] : 0;
+      div.innerHTML = `<span class="t">${fmtTime(t0)}</span><span class="x"></span>`;
+      div.querySelector(".x").textContent = c.text.trim();
+      list.appendChild(div);
+    }
+    if (!list.children.length) {
+      list.innerHTML = '<div class="chunk"><span class="x" style="color:var(--ink-faint)">Sem marcações de tempo disponíveis.</span></div>';
+    }
+  }
+
+  // ---------- idle view: file + drag/drop ----------
+  const dz = $("dropzone");
+  dz.addEventListener("click", (e) => { if (e.target.closest("#micBtn")) return; $("fileInput").click(); });
+  $("fileInput").addEventListener("change", (e) => { handleFile(e.target.files[0]); e.target.value = ""; });
+  ["dragover", "dragenter"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("dragover"); }));
+  ["dragleave", "drop"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("dragover"); }));
+  dz.addEventListener("drop", (e) => handleFile(e.dataTransfer.files[0]));
+  document.addEventListener("dragover", (e) => e.preventDefault());
+  document.addEventListener("drop", (e) => e.preventDefault());
+
+  // ---------- recording ----------
+  let mediaStream = null, mediaRec = null, recChunks = [], recTimerInt = null, recStart = 0;
+  let audioCtxRec = null, analyser = null, rafId = null;
+
+  $("micBtn").addEventListener("click", async (e) => {
+    e.stopPropagation();
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      toast("Preciso de permissão para usar o microfone.", true);
+      return;
+    }
+    recChunks = [];
+    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "";
+    mediaRec = new MediaRecorder(mediaStream, mime ? { mimeType: mime } : undefined);
+    mediaRec.ondataavailable = (ev) => { if (ev.data.size) recChunks.push(ev.data); };
+    mediaRec.start(500);
+    recStart = Date.now();
+    show("viewRec");
+    recTimerInt = setInterval(() => {
+      const s = Math.floor((Date.now() - recStart) / 1000);
+      $("recTimer").textContent = String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+    }, 250);
+    startWave();
+  });
+
+  function startWave() {
+    const canvas = $("wave");
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = canvas.clientWidth * dpr;
+    canvas.height = canvas.clientHeight * dpr;
+    const g = canvas.getContext("2d");
+    audioCtxRec = new AudioContext();
+    analyser = audioCtxRec.createAnalyser();
+    analyser.fftSize = 1024;
+    audioCtxRec.createMediaStreamSource(mediaStream).connect(analyser);
+    const buf = new Uint8Array(analyser.frequencyBinCount);
+    const draw = () => {
+      rafId = requestAnimationFrame(draw);
+      analyser.getByteTimeDomainData(buf);
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      g.beginPath();
+      g.strokeStyle = "#e8a33d";
+      g.lineWidth = 2 * dpr;
+      const step = canvas.width / buf.length;
+      for (let i = 0; i < buf.length; i++) {
+        const y = (buf[i] / 255) * canvas.height;
+        i === 0 ? g.moveTo(0, y) : g.lineTo(i * step, y);
+      }
+      g.stroke();
+    };
+    draw();
+  }
+
+  function stopRecInfra() {
+    clearInterval(recTimerInt);
+    cancelAnimationFrame(rafId);
+    if (audioCtxRec) { audioCtxRec.close(); audioCtxRec = null; }
+    if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null; }
+    $("recTimer").textContent = "00:00";
+  }
+
+  $("recStop").addEventListener("click", () => {
+    if (!mediaRec) return;
+    mediaRec.onstop = async () => {
+      stopRecInfra();
+      const blob = new Blob(recChunks, { type: mediaRec.mimeType || "audio/webm" });
+      const name = "gravacao-" + new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-") + ".webm";
+      await handleFile(new File([blob], name, { type: blob.type }));
+      if (!pendingJob && $("viewRec").classList.contains("hidden") === false) show("viewIdle");
+    };
+    mediaRec.stop();
+  });
+
+  $("recCancel").addEventListener("click", () => {
+    if (mediaRec && mediaRec.state !== "inactive") { mediaRec.onstop = null; mediaRec.stop(); }
+    stopRecInfra();
+    show("viewIdle");
+  });
+
+  // ---------- result actions ----------
+  $("tabText").addEventListener("click", () => switchTab(true));
+  $("tabTimes").addEventListener("click", () => switchTab(false));
+  function switchTab(textMode) {
+    $("tabText").classList.toggle("active", textMode);
+    $("tabTimes").classList.toggle("active", !textMode);
+    $("finalText").classList.toggle("hidden", !textMode);
+    $("chunkList").classList.toggle("hidden", textMode);
+  }
+
+  $("btnCopy").addEventListener("click", async () => {
+    await navigator.clipboard.writeText($("finalText").value);
+    toast("Texto copiado!");
+  });
+
+  function download(name, content, mime) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([content], { type: mime }));
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+
+  $("btnTxt").addEventListener("click", () => {
+    download("transcricao.txt", $("finalText").value, "text/plain;charset=utf-8");
+  });
+
+  $("btnSrt").addEventListener("click", () => {
+    if (!lastResult || !lastResult.chunks.length) { toast("Sem marcações de tempo para gerar legenda.", true); return; }
+    let srt = "", n = 1;
+    for (const c of lastResult.chunks) {
+      if (!c.text || !c.text.trim()) continue;
+      const t0 = c.timestamp[0] ?? 0;
+      const t1 = c.timestamp[1] ?? t0 + 3;
+      srt += `${n++}\n${srtTime(t0)} --> ${srtTime(t1)}\n${c.text.trim()}\n\n`;
+    }
+    download("transcricao.srt", srt, "text/plain;charset=utf-8");
+  });
+
+  $("btnNew").addEventListener("click", () => { show("viewIdle"); });
+
+  // ---------- utils ----------
+  function fmtTime(s) {
+    s = Math.max(0, s);
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
+    if (h) return `${h}h${String(m).padStart(2, "0")}m`;
+    if (m) return `${m}m${String(sec).padStart(2, "0")}s`;
+    return s < 10 ? s.toFixed(1) + "s" : sec + "s";
+  }
+  function srtTime(s) {
+    const h = String(Math.floor(s / 3600)).padStart(2, "0");
+    const m = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+    const sec = String(Math.floor(s % 60)).padStart(2, "0");
+    const ms = String(Math.round((s % 1) * 1000)).padStart(3, "0");
+    return `${h}:${m}:${sec},${ms}`;
+  }
+})();
+</script>
+</body>
+</html>

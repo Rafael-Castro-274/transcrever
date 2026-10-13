@@ -1,0 +1,44 @@
+{
+  "name": "transcrever",
+  "productName": "Transcrever",
+  "version": "1.0.0",
+  "description": "Transcrição de áudio 100% local, com Whisper rodando no seu computador",
+  "author": "Rafael",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "build": {
+    "appId": "br.com.analitica.transcrever",
+    "productName": "Transcrever",
+    "asar": false,
+    "files": [
+      "main.js",
+      "index.html",
+      "icon.ico",
+      "vendor/**"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Transcrever",
+      "runAfterFinish": true,
+      "artifactName": "Transcrever-Instalador-${version}.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3"
+  }
+}
